@@ -18,10 +18,12 @@ env:
   AWS_REGION: us-east-1
 
 jobs:
-  windows-arm64:
-    runs-on: ubuntu-20.04 # try cross compile on linux
+  windows-vs14:
+    runs-on: windows-latest # windows-2019 is last env with Visual Studio 2015 (v14.0)
     steps:
     - name: Build ${{ env.PACKAGE_NAME }} + consumers
       run: |
+        md D:\a\work
+        cd D:\a\work
         python -c "from urllib.request import urlretrieve; urlretrieve('${{ env.BUILDER_HOST }}/${{ env.BUILDER_SOURCE }}/${{ env.BUILDER_VERSION }}/builder.pyz?run=${{ env.RUN }}', 'builder.pyz')"
-        python builder.pyz build -p ${{ env.PACKAGE_NAME }} --target=windows-arm64
+        python builder.pyz build -p ${{ env.PACKAGE_NAME }} --cmake-extra=-Aarm64
