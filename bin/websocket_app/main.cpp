@@ -10,8 +10,8 @@
 #include <aws/crt/http/HttpConnection.h>
 #include <aws/crt/http/HttpRequestResponse.h>
 #include <aws/crt/io/Uri.h>
-#include <aws/iot/MqttCommon.h>
 #include <aws/iot/MqttClient.h>
+#include <aws/iot/MqttCommon.h>
 
 #include <aws/crt/UUID.h>
 
@@ -217,7 +217,7 @@ int main(int argc, char **argv)
 
     if (!provider)
     {
-        fprintf(stderr, "Failure to create credentials provider!\n");
+        fprintf(stdout, "Failure to create credentials provider!\n");
         exit(-1);
     }
 
@@ -226,13 +226,13 @@ int main(int argc, char **argv)
 
     clientConfigBuilder.WithCertificateAuthority(app_ctx.cacert);
 
-    clientConfigBuilder.WithEndpoint(Aws::Crt::String((char*)hostName.ptr, hostName.len));
+    clientConfigBuilder.WithEndpoint(Aws::Crt::String((char *)hostName.ptr, hostName.len));
 
     auto clientConfig = clientConfigBuilder.Build();
     if (!clientConfig)
     {
         fprintf(
-            stderr,
+            stdout,
             "Client Configuration initialization failed with error %s\n",
             Aws::Crt::ErrorDebugString(clientConfig.LastError()));
         exit(-1);
@@ -242,7 +242,7 @@ int main(int argc, char **argv)
     if (!*connection)
     {
         fprintf(
-            stderr,
+            stdout,
             "MQTT Connection Creation failed with error %s\n",
             Aws::Crt::ErrorDebugString(connection->LastError()));
         exit(-1);
@@ -252,61 +252,88 @@ int main(int argc, char **argv)
     String clientId = String("test-") + Aws::Crt::UUID().ToString();
 
     /*
-        * In a real world application you probably don't want to enforce synchronous behavior
-        * but this is a sample console application, so we'll just do that with a condition variable.
-        */
+     * In a real world application you probably don't want to enforce synchronous behavior
+     * but this is a sample console application, so we'll just do that with a condition variable.
+     */
     std::promise<bool> connectionCompletedPromise;
     std::promise<void> connectionClosedPromise;
 
     /*
-        * This will execute when an mqtt connect has completed or failed.
-        */
+     * This will execute when an mqtt connect has completed or failed.
+     */
     auto onConnectionCompleted =
-        [&](Aws::Crt::Mqtt::MqttConnection &, int errorCode, Aws::Crt::Mqtt::ReturnCode returnCode, bool) {
-            if (errorCode)
-            {
-                fprintf(stdout, "Connection failed with error %s\n", Aws::Crt::ErrorDebugString(errorCode));
-                connectionCompletedPromise.set_value(false);
-            }
-            else
-            {
-                fprintf(stdout, "Connection completed with return code %d\n", returnCode);
-                connectionCompletedPromise.set_value(true);
-            }
-        };
-
-    auto onInterrupted = [&](Aws::Crt::Mqtt::MqttConnection &, int error) {
-        uint64_t timestamp = 0;
-        aws_high_res_clock_get_ticks(&timestamp);
-        fprintf(stdout, "Connection interrupted with error %s, %llu\n", Aws::Crt::ErrorDebugString(error), timestamp);
+        [&](Aws::Crt::Mqtt::MqttConnection &, int errorCode, Aws::Crt::Mqtt::ReturnCode returnCode, bool)
+    {
+        if (errorCode)
+        {
+            fprintf(stdout, "Connection failed with error %s\n", Aws::Crt::ErrorDebugString(errorCode));
+            connectionCompletedPromise.set_value(false);
+        }
+        else
+        {
+            fprintf(stdout, "Connection completed with return code %d\n", returnCode);
+            connectionCompletedPromise.set_value(true);
+        }
     };
-    auto onResumed = [&](Aws::Crt::Mqtt::MqttConnection &, Aws::Crt::Mqtt::ReturnCode, bool) {
+
+    auto onInterrupted = [&](Aws::Crt::Mqtt::MqttConnection &, int error)
+    {
         uint64_t timestamp = 0;
         aws_high_res_clock_get_ticks(&timestamp);
-        fprintf(stdout, "Connection resumed: %llu\n", timestamp);
+        fprintf(stdout, "Connection interrupted with error %s, %lu\n", Aws::Crt::ErrorDebugString(error), timestamp);
+    };
+    auto onResumed = [&](Aws::Crt::Mqtt::MqttConnection &, Aws::Crt::Mqtt::ReturnCode, bool)
+    {
+        uint64_t timestamp = 0;
+        aws_high_res_clock_get_ticks(&timestamp);
+        fprintf(stdout, "Connection resumed: %lu\n", timestamp);
+    };
+
+    /*
+     * Invoked when a disconnect message has completed.
+     */
+    auto onDisconnect = [&](Aws::Crt::Mqtt::MqttConnection &)
+    {
+        fprintf(stdout, "Disconnect completed\n");
+        connectionClosedPromise.set_value();
     };
 
     connection->OnConnectionCompleted = std::move(onConnectionCompleted);
     connection->OnConnectionInterrupted = std::move(onInterrupted);
     connection->OnConnectionResumed = std::move(onResumed);
+    connection->OnDisconnect = std::move(onDisconnect);
 
     /*
-        * Actually perform the connect dance.
-        */
+     * Actually perform the connect dance.
+     */
     fprintf(stdout, "Connecting...\n");
     if (!connection->Connect(clientId.c_str(), false /*cleanSession*/, 1000 /*keepAliveTimeSecs*/))
     {
-        fprintf(
-            stderr, "MQTT Connection failed with error %s\n", Aws::Crt::ErrorDebugString(connection->LastError()));
+        fprintf(stdout, "MQTT Connection failed with error %s\n", Aws::Crt::ErrorDebugString(connection->LastError()));
         exit(-1);
     }
 
     // wait for the OnConnectionCompleted callback to fire, which sets connectionCompletedPromise...
     if (connectionCompletedPromise.get_future().get() == false)
     {
-        fprintf(stderr, "Connection failed\n");
+        fprintf(stdout, "Connection failed\n");
         exit(-1);
     }
     // Well, we just keep the client running...
-}
+    while (true)
+    {
+        String input;
+        std::cin >> input;
 
+        if (input == "exit" || input == "quit")
+        {
+            fprintf(stdout, "Exiting...");
+            /* Disconnect */
+            if (connection->Disconnect())
+            {
+                connectionClosedPromise.get_future().wait();
+            }
+            break;
+        }
+    }
+}
