@@ -380,7 +380,7 @@ install(FILES "${GENERATED_ROOT_DIR}/${PROJECT_NAME}-config-version.cmake"
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}/"
     COMPONENT Development)
 
-if(NOT CMAKE_CROSSCOMPILING)
+if(NOT CMAKE_CROSSCOMPILING OR QNX)
     if(BUILD_TESTING)
         add_subdirectory(tests)
 
@@ -389,5 +389,13 @@ if(NOT CMAKE_CROSSCOMPILING)
             add_subdirectory(bin/mqtt5_app)
             add_subdirectory(bin/mqtt5_canary)
         endif()
+
+        if(INSTALL_TESTS)
+            install(
+            TARGETS aws-crt-cpp-tests
+            RUNTIME DESTINATION bin/aws_crt_cpp_tests COMPONENT Runtime
+            )
+        endif()
+
     endif()
 endif()
